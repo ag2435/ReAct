@@ -5,7 +5,7 @@ import gym
 import requests
 from bs4 import BeautifulSoup
 
-# import wikipedia
+import wikipediaapi
 
 def clean_str(p):
   return p.encode().decode("unicode-escape").encode("latin1").decode("utf-8")
@@ -34,6 +34,7 @@ class WikiEnv(gym.Env):
     self.observation_space = self.action_space = textSpace()
     self.search_time = 0
     self.num_searches = 0
+    self.wiki_wiki = wikipediaapi.Wikipedia('MyProjectName (merlin@example.com)', 'en')
     
   def _get_obs(self):
     return self.obs
@@ -120,6 +121,80 @@ class WikiEnv(gym.Env):
               self.page += "\n"
         self.obs = self.get_page_obs(self.page)
         self.lookup_keyword = self.lookup_list = self.lookup_cnt = None
+
+  def print_sections(self, entity):
+    """
+    To get all top level sections of page, you have to use property sections. 
+    It returns list of WikipediaPageSection, so you have to use recursion to get all subsections.
+    """
+    page_py = self.wiki_wiki.page(entity)
+
+    def print_sections(sections, level=0):
+      result = ''
+      for s in sections:
+        # print(f"{'*' * (level + 1)}: {s.title} - {s.text[0:40]}")
+        result += f"{'*' * (level + 1)}: {s.title}\n"
+        result += print_sections(s.sections, level + 1)
+      return result
+    
+    return print_sections(page_py.sections)
+  
+  def sections_by_title(self, entity, section_title):
+    """
+    To get all sections of page with given title, you have to use function sections_by_title. 
+    It returns the all WikipediaPageSection with this title.
+
+    NOTE: there is also a function on the wikipedia-api that returns one section, 
+    but we just return everything
+    """
+    page_py = self.wiki_wiki.page(entity)
+    return page_py.sections_by_title(section_title).text
+  
+  def links(self, entity):
+    """
+    If you want to get all links to other wiki pages from given page, 
+    you need to use property links. It's map, where key is page title and value is WikipediaPage.
+    """
+    page_py = self.wiki_wiki.page(entity)
+    result = ""
+    links = page_py.links
+    for title in sorted(links.keys()):
+      result += f"{title}: {links[title]}\n"
+    return result
+    
+  
+  def page_categories(self, entity):
+    """
+    If you want to get all categories under which page belongs, you should use property categories. 
+    It's map, where key is category title and value is WikipediaPage.
+    """
+    # raise NotImplementedError
+    page_py = self.wiki_wiki.page(entity)
+    result = ""
+
+    categories = page_py.categories
+    for title in sorted(categories.keys()):
+      result += f"{title}: {categories[title]}\n"
+    return result
+  
+  def pages_from_category(self, category):
+    """
+    To get all pages from given category, you should use property categorymembers.
+    It returns all members of given category. You have to implement recursion and deduplication by yourself.
+    """
+    # raise NotImplementedError
+    category_py = self.wiki_wiki.page(category)
+    def print_categorymembers(categorymembers, level=0, max_level=1):
+      result = ""
+      for c in categorymembers.values():
+        result += f"{c.title}: {c.ns} (ns: {c.ns})\n"
+        # print("%s: %s (ns: %d)" % ("*" * (level + 1), c.title, c.ns))
+        if c.ns == wikipediaapi.Namespace.CATEGORY and level < max_level:
+            print_categorymembers(c.categorymembers, level=level + 1, max_level=max_level)
+      return result
+    
+    return print_categorymembers(category_py.categorymembers)
+
   
   def step(self, action):
     reward = 0
@@ -152,6 +227,24 @@ class WikiEnv(gym.Env):
       self.obs = f"Episode finished, reward = {reward}\n"
     elif action.startswith("think[") and action.endswith("]"):
       self.obs = "Nice thought."
+
+    # add more actions here
+    elif self.action_is(action, "print_sections"):
+      entity = action[len("print_sections["):-1]
+      self.obs = self.print_sections(entity)
+    elif self.action_is(action, "sections_by_title"):
+      entity, section_title = action[len("sections_by_title["):-1].split(",")
+      self.obs = self.sections_by_title(entity, section_title)
+    elif self.action_is(action, "links"):
+      entity = action[len("links["):-1]
+      self.obs = self.links(entity)
+    elif self.action_is(action, "page_categories"):
+      entity = action[len("page_categories["):-1]
+      self.obs = self.page_categories(entity)
+    elif self.action_is(action, "pages_from_category"):
+      category = action[len("pages_from_category["):-1]
+      self.obs = self.pages_from_category(category)
+
     else:
       self.obs = "Invalid action: {}".format(action)
 
@@ -166,3 +259,7 @@ class WikiEnv(gym.Env):
         "call_time": self.search_time,
         "num_calls": self.num_searches,
     }
+  
+  @staticmethod
+  def action_is(s, action):
+    return s.startswith(f"{action}[") and s.endswith("]")
