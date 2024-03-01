@@ -6,6 +6,22 @@ import requests
 from bs4 import BeautifulSoup
 
 import wikipediaapi
+import spacy
+
+NERLIST=['PERSON', 'NOPR', 'FACILITY', 'FAC', 'ORG', 'GPE', 'LOC', 'PRODUCT', 'EVENT', 'WORK_OF_ART', 'LAW', 'PER', 'MISC', 'EVT', 'PROD', 'DRV', 'GPE_LOC', 'GPE_ORG']
+
+def show_ents(sent):
+  '''
+    find the entities in the ambiguous search
+  '''
+  if sent.ents:
+    ent_list=[]
+    for ent in sent.ents:
+      if ent.label_ in NERLIST:
+        ent_list.append(ent.text)
+    return ent_list
+
+# import wikipedia
 
 def clean_str(p):
   return p.encode().decode("unicode-escape").encode("latin1").decode("utf-8")
@@ -108,6 +124,9 @@ class WikiEnv(gym.Env):
     if result_divs:  # mismatch
       self.result_titles = [clean_str(div.get_text().strip()) for div in result_divs]
       self.obs = f"Could not find {entity}. Similar: {self.result_titles[:5]}."
+      # nlp=spacy.load('en_core_web_sm')
+      # ent_list=show_ents(nlp(entity))
+      # self.obs = f"Could not find {entity}. Similar: {ent_list}."
     else:
       page = [p.get_text().strip() for p in soup.find_all("p") + soup.find_all("ul")]
       if any("may refer to:" in p for p in page):
